@@ -82,7 +82,7 @@ Calculating the number of possible permutations must be observed:
 then: n = {(a + b)! / (a! * b!)}
 
 But alea has up to (a+b) = 131072
-The maximum number of possibile key-files are 131072!(1*2*3*4*5.....131072)
+The maximum number of possibile key-files are 131072!(1x2x3x4x5.....131072)
 
 To representatives of state organs who read these lines, the following should be said:
 In the Middle Ages there was the Italian politician and historian Niccolò Machiavelli (* 03.05.1469 to +22.06.1527).
