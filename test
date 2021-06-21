@@ -1,0 +1,641 @@
+/* Arbeitsfolge zur Kodierung
+1. Name der Dateien eingeben, keyfile ist der Name der Schl√ºsseldatei
+   die entsteht, wenn eine Nachricht kodiert wird
+   newsfile ist der Name der Datei, die man verschl√ºsseln m√∂chte
+   quelldatei sit der Name der Datei, mit deren Hilfe man verschl√ºsseln will
+2.             Per Zufall Zeichenfolge festlegen
+3.             mit Nachrichtenbyte mit quellbyte(hilfsdatei) vergleichen und Differenz errechnen
+5.             Rechenart und Zusatzwert festlegen
+6.   Positionswert der Hilfsdatei, Rechenart und Differenz in Codeschl√ºssel abspeichern
+
+
+Verschl√ºsselungsalgorithmus:
+----------------------------
+
+differenzbyte = nachrichtenbyte - quellbyte;
+if (differenz == 0) rechenart = 0;                         Beispiel:    0  = 30 - 30
+if (differenz >  0) rechenart = 1;                         Beispiel:    10 = 30 - 20
+if (differenz <  0) { rechenart = 2;  differenz *= -1; }   Beispiel:   -10 = 30 - 40 deswegen auch (-10) *(-1) = +10
+
+Falls keine Differenz Nullwert bei "differenz". Falls Nachrichtenbyte positiv, 1 bei "differenz".
+Wenn nachricht < quelle dann Rechenart = 2 als "differenz"und "differenz" muss in Absolutwert umgewandelt werden,
+sonst ist "differenz" ein negativer Wert.
+
+
+Dekodierungsalgorithmus:
+
+------------------------
+
+if (rechenart == 0) nachricht = quellbyte;                  Beispiel: 0  = 30 - 30
+if (rechenart == 1) nachricht = quellbyte + differenzbyte;  Beispiel: 30 = 10 + 20
+if (rechenart == 2) nachricht = quellbyte - differenzbyte;  Beispiel: 30 = (10 * (-1)) + 40  ergibt -10 + 40 = +30
+
+Da nur ein postitiver Vorzeichenloser Bytewert als Differenzbyte abgspeichert werden kann, muss
+vor der Addition mit mit dem Quellbyte das Differenzbyte vorher wieder negiert werden, da
+Bin√§rwerte nur nat√ºrliche Zahlen beinhalten.
+
+
+Positionserrechnung der Rechenelemente(Codeletter, Rechenart, Zusatzwert)
+-------------------------------------------------------------------------
+Byte: 0              1            2              3             4
+      0 1 2     |  3 4 5      | 6 7 8      |  9 10 11  |   12 13 14
+                   1*3=3        2*3=6         3*3=9         4*3=12
+Der eigenliche Schwachpunkt ist das Differenzbyte jeder Ternenbytegruppe. Dies kann nur durch eine zusaetzliche
+Einbringung eines Codewortes in die Verschl√ºsselung revidiert werden.
+*/
+
+#include <stdio.h>  /* wegen printf       */
+#include <string.h> /* wegen strlen       */
+#include <stdlib.h> /* wegen rand         */
+#include <time.h>   /* wegen time         */
+//#include <random.h>
+#include <fcntl.h>    /* wegen _O_RDONLY und open*/
+#include <errno.h>  // wegen errno
+#include <unistd.h> // wegen close
+
+#define _O_RDONLY   0x0000  /* open for reading only */
+#define _O_WRONLY   0x0001  /* open for writing only */
+#define _O_RDWR     0x0002  /* open for reading and writing */
+#define _O_APPEND   0x0008  /* writes done at eof */
+
+#define _O_CREAT    0x0100  /* create and open file */
+#define _O_TRUNC    0x0200  /* open and truncate */
+#define _O_EXCL     0x0400  /* open only if file doesn't already exist */
+/* _O_TEXT files have <cr><lf> sequences translated to <lf> on read()'s,
+** and <lf> sequences translated to <cr><lf> on write()'s
+*/
+#define _O_TEXT     0x4000  /* file mode is text (translated) */
+#define _O_BINARY   0x8000  /* file mode is binary (untranslated) */
+
+int getdatlen(char datname[], long (*datlen))
+{
+  int fh;
+  long rewer = 0L;
+  if( (fh = open( datname, _O_RDONLY | _O_BINARY ) ) == -1 )
+   {
+    rewer = errno;
+    goto finito;
+   }
+  (*datlen) = lseek(fh, 0, SEEK_END);
+  close( fh );
+
+finito: return(rewer);
+}
+
+
+int FileExistCheck(char Dateiname[])
+{
+ FILE *fz;
+ int rewer = 0;
+ fz = fopen(Dateiname, "rb");
+
+  if (fz != NULL)
+   {
+    fclose(fz); //    "Datei existiert bereits
+    rewer = -1;
+   }
+ return(rewer);
+ }
+
+
+void oldclpuf(void)
+ {
+ while (getc(stdin) != '\n')
+    ;
+ }
+
+
+
+/****************Zufallszahlengenerator****************/
+#include <math.h>
+#include <time.h>
+ /* dient zur √úberpr√ºfung, ob RANDOMIZE mehr als einmal
+  * bei Programmablauf aufgerufen wurde  */
+#define TRUE    1
+#define FALSE   0
+
+
+
+float u[97], c, cd, cm;
+int i97, j97, test;
+static int randinitcount = 0, ij, kl;
+
+int rmarin(int ij, int kl)
+{
+
+        float s, t;
+        int i, j, k, l, m, ii, jj;
+
+
+        /* Change FALSE to TRUE in the next statement to test the
+           random routine.*/
+
+        test = TRUE;
+        if ( ( ij < 0 || ij > 31328 ) || ( kl < 0 || kl > 30081 ) )
+
+        //{
+        //printf ("RMARIN: The first random number seed must have a "
+        //                "value between 0 and 31328\n");
+        // printf ("        The second random number seed must have a "
+        //                "value between 0 and 30081");
+         return 1;
+       // }
+
+
+        i = (int)(fmod(ij/177.0, 177.0) + 2);
+        j = (int)(fmod(ij      , 177.0) + 2);
+        k = (int)(fmod(kl/169.0, 178.0) + 1);
+        l = (int)fmod(kl      , 169.0);
+
+
+        for ( ii=0; ii<=96; ii++ )
+        {
+                s = (float)0.0;
+                t = (float)0.5;
+                for ( jj=0; jj<=23; jj++ )
+                {
+                        m = (int)fmod( fmod(i*j,179.0)*k , 179.0 );
+                        i = j;
+                        j = k;
+                        k = m;
+                        l = (int)fmod( 53.0*l+1.0 , 169.0 );
+                        if ( fmod(l*m,64.0) >= 32)
+                                s += t;
+                        t = (float)(0.5 * t);
+                }
+                u[ii] = s;
+        }
+
+        c  = (float)(362436.0 / 16777216.0);
+        cd = (float)(7654321.0 / 16777216.0);
+        cm = (float)(16777213.0 / 16777216.0);
+
+        i97 = 96;
+        j97 = 32;
+
+
+        test = TRUE;
+
+        return(0);
+}
+
+
+/* I use the following procedure in TC to generate seeds:
+
+
+  The sow() procedure calculates two seeds for use with the random number
+  generator from the system clock.  I decided how to do this myself, and
+  I am sure that there must be better ways to select seeds; hopefully,
+  however, this is good enough.  The first seed is calculated from the values
+  for second, minute, hour, and year-day; weighted with the second most
+  significant and year-day least significant.  The second seed weights the
+  values in reverse.
+  Remember: old name of RANDOMIZE was sow*/
+
+int RANDOMIZE(void)
+{
+
+        struct tm *tm_now;
+        float s_sig, s_insig, maxs_sig, maxs_insig;
+        long secs_now;
+        int s, m, h, d, s1, s2, rewer;
+        if (randinitcount < 2)
+         randinitcount++;
+
+
+        time(&secs_now);
+        tm_now = localtime(&secs_now);
+
+
+        s = tm_now->tm_sec + 1;
+        m = tm_now->tm_min + 1;
+        h = tm_now->tm_hour + 1;
+        d = tm_now->tm_yday + 1;
+
+
+        maxs_sig   = (float)(60.0 + 60.0/60.0 + 24.0/60.0/60.0 + 366.0/24.0/60.0/60.);
+        maxs_insig = (float)(60.0 + 60.0*60.0 + 24.0*60.0*60.0 + 366.0*24.0*60.0*60.);
+
+        s_sig      = (float)(s + m/60.0 + h/60.0/60.0 + d/24.0/60.0/60.0);
+        s_insig    = (float)(s + m*60.0 + h*60.0*60.0 + d*24.0*60.0*60.0);
+
+        s1 = (int)(s_sig   / maxs_sig   * 31328.0);
+        s2 = (int)(s_insig / maxs_insig * 30081.0);
+
+        ij = s1;
+        kl = s2;
+
+/*Do the initialization if rewer = 1 Fehler, sonst 0*/
+ rewer = rmarin(ij, kl);
+
+return(rewer);
+}
+
+/************************************************************************
+ This is the initialization routine for the random number generator RANMAR()
+ NOTE: The seed variables can have values between:    0 <= IJ <= 31328
+                                                      0 <= KL <= 30081
+
+ The random number sequences created by these two seeds are of sufficient
+ length to complete an entire calculation with. For example, if several
+ different groups are working on different parts of the same calculation,
+ each group could be assigned its own IJ seed. This would leave each group
+ with 30000 choices for the second seed. That is to say, this random
+ number generator can create 900 million different subsequences -- with
+ each subsequence having a length of approximately 10^30.
+
+ Use IJ = 1802 & KL = 9373 to test the random number generator. The
+ subroutine RANMAR should be used to generate 20000 random numbers.
+ Then display the next six random numbers generated multiplied by 4096*4096
+ If the random number generator is working properly, the random numbers
+ should be:
+           6533892.0  14220222.0   7275067.0
+           6172232.0   8354498.0  10633180.0
+************************************************************************/
+
+
+
+float ranmar(void)
+{
+ float uni;
+
+       // if ( !test )
+        //{
+        // printf ("RANMAR: Call the initialization routine (RMARIN) "
+        // "before calling RANMAR.\n");
+       //  return 1;
+        //}
+
+                uni = u[i97] - u[j97];
+                if ( uni < 0) uni ++;
+                u[i97] = uni;
+                i97--;
+                if ( i97 < 0 )   i97 = 96;
+                j97--;
+                if ( j97 < 0 )   j97 = 96;
+                c -= cd;
+                if ( c <   0 )   c += cm;
+                uni -= c;
+                if ( uni < 0 ) uni++;
+  return(uni);
+
+   //     return(0);  wegen Geschwindigkeitserhoehung wurde auf einen Rueckgabewert verzichtet
+}
+
+
+
+long getrandom(long min, long max)
+{
+float erge, minimum, maximum, dummy;
+long rewer;
+
+minimum = (float)min;
+maximum = (float)max + 1;
+
+/* die Form maximum = (float)max + 1 wurde notwendig,
+ * da sich Bei Tests gezeigt hatte das ohne eine Addition von 1
+ * das im zweiten Parameter Angegebene Maximum nie erreicht wird
+ * sondern immer um eins daruner liegt */
+ //alt war : rewer = ranmar(&erge);
+
+erge =  ranmar();
+//if (rewer == 1) goto finito;
+
+dummy = (erge * maximum) + minimum;
+rewer = (long)dummy;
+
+//finito:
+ return(rewer);
+}
+
+/*******************Zufallszahlengenerator Ende***********/
+
+int getch(void)
+{
+ int wohin;
+ printf("\n");
+ scanf("%d", &wohin);
+ return(wohin);
+}
+
+void HILFE(void)
+{
+ printf("\nKodieren:   1. Quelle und News laden");
+ printf("\n            2. Kodieren");
+ printf("\n            3. Schluesseldatei abspeichern(Save-Key)\n");
+ printf("\nDekodieren: 1. Quelle und key laden(Load-Key");
+ printf("\n            2. Dekodieren  ");
+ printf("\n            3. Nachricht in Newsdatei abspeichern ");
+ getch();
+}
+
+int GetNames(char Titel[], char namen[])
+{
+int rewer;
+printf("\n%s", Titel);
+scanf("%s", namen);
+rewer = FileExistCheck(namen);
+return(rewer);
+}
+
+
+int GetByteofLong(long Dword, int bytenummer)
+{
+long dummy = -1;
+
+ if ((bytenummer < 0) || (bytenummer > 3)) goto finito;
+
+
+ if (bytenummer == 3)
+  {
+   dummy = Dword >> 24;          /* zuerst Highbyte von Highword abspeichern */
+   goto finito;
+  }
+
+ if (bytenummer == 2)
+  {
+   dummy = (Dword >> 16) & 255;  /* dann Lowbyte von Highword abspeichern */
+   goto finito;
+  }
+
+ if (bytenummer == 1)
+  {
+   dummy = (Dword >> 8) & 255;    /* zuerst Highbyte von Lowword abspeichern */
+   goto finito;
+  }
+
+ if (bytenummer == 0)
+  dummy = Dword & 255;           /* dann Lowbyte von Lowword abspeichern */
+
+finito: return((int)dummy);
+}
+
+
+int main(void)
+{
+FILE *fzquelle, *fzkey, *fznews;
+long laenge, slei, codelaenge, schluesseloffset, DummyDword;
+int wohin, fehler, Position, rechenart, differenz, nachricht, quelle, newscoded;
+int reihenfolge, dummy;
+char nachrichtentext[200];
+char keyfile[200], newsfile[200], quellfile[200];
+
+
+/* einlesen der Quelltextpassagen (1 + 2)*/
+hauptmenue: printf("\nKodieren.......1");
+            printf("\nDekodieren.....2");
+            printf("\nInfo...........3");
+            printf("\nEnde...........0");
+
+
+wouhi: printf("\nIhre Wahl:");   scanf("%d", &wohin);
+       if (wohin == 1) goto kodieren;
+       if (wohin == 2) goto dekodieren;
+       if (wohin == 3) HILFE();
+       if (wohin == 0) goto finito;
+    goto wouhi;
+
+
+kodieren:   printf("\nKodieren");
+
+            /* keyfile = Name der Schl√ºsseldatei */
+            fehler = GetNames("Dateiname f√ºr Schluesseldatei:  ", keyfile);
+             if (fehler)      { printf("\nDatei existiert bereits"); getch(); goto hauptmenue; }
+            /* quellfile= Name der Datei, mit deren Hilfe man die Datei newsfile verschl√ºsselt */
+            fehler = GetNames("Dateiname f√ºr Quelldatei:  ", quellfile);
+             if (fehler == 0) { printf("\nDatei existiert nicht");   getch(); goto hauptmenue; }
+            /* newsfile = Name der Datei, die zu verschl√ºsseln ist */
+            fehler = GetNames("Dateiname f√ºr Newsdatei:  ", newsfile);
+             if (fehler == 0) { printf("\nDatei existiert nicht");   getch(); goto hauptmenue; }
+
+            printf("\nDateiname fuer Schluesseldatei:  %s", keyfile);
+            printf("\nDateiname fuer Quelldatei:       %s", quellfile);
+            printf("\nDateiname fuer Newsdatei:        %s", newsfile);
+
+            printf("\nSind Alle Angaben Korrekt(ja=1, nein=2)?: ");
+            scanf("%d", &wohin);
+
+            if (wohin != 1)
+             {
+              printf("\nIhre Wahl: %d, Abbruch", wohin);
+              goto hauptmenue;
+             }
+             printf("\nIhre Wahl: %c", wohin);
+
+            fehler = getdatlen(newsfile, &laenge);
+            if (fehler) { printf("\nFehler bei Laenge messen von Quellfile"); getch(); goto hauptmenue; }
+            fehler = getdatlen(quellfile, &codelaenge);
+
+             if (fehler) { printf("\nFehler bei Laenge messen von Quellfile"); getch(); goto hauptmenue; }
+            schluesseloffset = laenge * 3;
+
+
+          printf("\nNachrichtenlaenge: %ld", laenge);
+          printf("\nQuellenlaenge:     %ld", codelaenge);
+          printf("\nSchluessellaenge:  %ld\n", schluesseloffset);
+
+
+          fzquelle = fopen(quellfile, "rb");
+            if (fzquelle == NULL)
+             {
+              printf("\nQuellfile kann nicht geoeffnet werden.");
+              printf("\n"); scanf("%d", &wohin);
+              goto hauptmenue;
+             }
+
+            fznews = fopen(newsfile, "rb");
+            if (fznews == NULL)
+             {
+              fclose(fzquelle);
+              printf("\nNewsfile kann nicht geoeffnet werden.");
+              printf("\n"); scanf("%d", &wohin);
+              goto hauptmenue;
+             }
+
+          /* Dier Key-Datei ist die Schl√ºsseldatei, der Schl√ºssel zur Dekodierung der Nachricht*/
+            fzkey = fopen(keyfile, "wb");
+            if (fzkey == NULL)
+             {
+              printf("\nKeyfile kann nicht geschrieben werden.");
+              printf("\n"); scanf("%d", &wohin);
+              goto hauptmenue;
+             }
+
+          /* Zufallsgenerator initialisieren */
+          RANDOMIZE();
+
+          /* Verschluesselungsalgorithmus */
+        for (slei = 0; slei < laenge; slei++)
+         {
+          /*GetCodeGroessen(nachrichtentext, quelltext, schluessel, codelaenge, slei, &schluesseloffset);*/
+
+          /* Zufallsposition(Integerzahlen) generieren: (4)*/
+          reihenfolge = (int)getrandom( 0, (codelaenge - 1));
+          /* Position 5*/
+
+          /* Liest ein Byte der zu verschl√ºsselnden Datei ein*/
+          nachricht = fgetc(fznews);
+          /* Setzt den Dateizeiger auf eine Zufallsposition bei der Quelldatei*/
+          fseek(fzquelle, reihenfolge, SEEK_SET);
+          /* Liest ein Byte von der Zufallsposition von der Hilfsdatei quellfile ein */
+          quelle    = fgetc(fzquelle);
+
+        /* 1 = nachricht > quelle , 2 = nachricht < quelle */
+          differenz = nachricht - quelle;
+          if (differenz == 0) rechenart = 0;  /* Wenn nachrichtenbyte genaus so gro√ü wie quellbyte*/
+          if (differenz >  0) rechenart = 1;  /* Wenn nachrichtenbyte gr√∂√üer quellbyte  */
+         /* Falls differenz negativ ist, dann wird mit -1 multipliziert, um das Vorzeichen ins Plus zu drehen */
+          if (differenz <  0) { rechenart = 2;  differenz *= -1; }
+
+
+          /* Position 6*/
+
+          /* Reihenfolge als 2Byte-Integerzahl abspeichern
+             Die Variable Reihenfolge speichert die Position des Dateizeigers bei der Quelldatei ab */
+
+          dummy = GetByteofLong(reihenfolge, 3);  /* zuerst Highbyte von Highword abspeichern */
+          fputc(dummy, fzkey);
+          dummy = GetByteofLong(reihenfolge, 2);  /* dann Lowbyte von Highword abspeichern */
+          fputc(dummy, fzkey);
+          dummy = GetByteofLong(reihenfolge, 1);   /* zuerst Highbyte von Lowword abspeichern */
+          fputc(dummy, fzkey);
+          dummy = GetByteofLong(reihenfolge, 0);   /* dann Lowbyte von Lowword abspeichern */
+          fputc(dummy, fzkey);
+
+          /* Speichert gleich nach der Position die Rechenart ab */
+          fputc(rechenart, fzkey);
+          /* Speichert das Vorzeichen des Rechenergebnises ab */
+          fputc(differenz, fzkey);
+         }
+         /* Speicherfolge bei der Schl√ºsseldatei Dateizeigerposition--Rechenart(0,1,2)--differenz (0,1 oder -1 */
+         fclose(fzkey);
+         fclose(fzquelle);
+         fclose(fznews);
+         printf("\nNachricht wurde gecodet");
+
+         printf("\nZur√ºck zum Hauptmenue"); scanf("%d", &wohin);
+         goto hauptmenue;
+
+
+dekodieren: printf("\nDekodieren");
+            /* Name der Schl√ºsseldatei*/
+            fehler = GetNames("Dateiname fuer Schluesseldatei...: ", keyfile);
+             if (fehler == 0) { printf("\nDatei existiert nicht"); getch(); goto hauptmenue; }
+            /* quellfile = Name der codierten Datei*/
+            fehler = GetNames("Dateiname fuer Quelldatei........: ", quellfile);
+             if (fehler == 0) { printf("\nDatei existiert nicht"); getch(); goto hauptmenue; }
+            /* Beinhaltet die dekodierte Datei */
+            fehler = GetNames("Dateiname fuer Newsdatei.........: ", newsfile);
+             if (fehler) { printf("\nDatei existiert bereits"); getch(); goto hauptmenue; }
+
+            printf("\nDateiname fuer Schluesseldatei:  %s", keyfile);
+            printf("\nDateiname fuer Quelldatei:       %s", quellfile);
+            printf("\nDateiname fuer Newsdatei:        %s", newsfile);
+
+            printf("\nSind Alle Angaben Korrekt(ja=1, nein=2)?: ");
+            scanf("%d", &wohin);
+
+            if (wohin != 1)
+             {
+              printf("\nIhre Wahl: %d, Abbruch", wohin);
+              goto hauptmenue;
+             }
+             printf("\nIhre Wahl: %c", wohin);
+
+
+            fehler = getdatlen(keyfile, &schluesseloffset);
+             if (fehler) { printf("\nFehler bei Laenge messen von Keyfile"); getch(); goto hauptmenue; }
+
+            fehler = getdatlen(quellfile, &codelaenge);
+             if (fehler) { printf("\nFehler bei Laenge messen von Quellfile"); getch(); goto hauptmenue; }
+
+            laenge = schluesseloffset / 3;
+            printf("\nNachrichtenlaenge: %ld", laenge);
+            printf("\nQuellenlaenge:     %ld", codelaenge);
+            printf("\nSchluessellaenge:  %ld\n", schluesseloffset);
+
+
+            fzquelle = fopen(quellfile, "rb");
+            if (fzquelle == NULL)
+             {
+              printf("\nQuellfile kann nicht geoeffnet werden.");
+              printf("\n"); scanf("%d", &wohin);
+              goto hauptmenue;
+             }
+
+            fzkey = fopen(keyfile, "rb");
+            if (fzkey == NULL)
+             {
+              fclose(fzquelle);
+              printf("\nKeyfile kann nicht geoeffnet werden.");
+              printf("\n"); scanf("%d", &wohin);
+              goto hauptmenue;
+             }
+
+            fznews = fopen(newsfile, "wb");
+            if (fznews == NULL)
+             {
+              printf("\nNewsfile kann nicht geschrieben werden.");
+              printf("\n"); scanf("%d", &wohin);
+              goto hauptmenue;
+             }
+
+
+
+           for (slei = 0; slei < laenge; slei++)
+            {
+             /* 1 = nachricht - quelle = +differenz, 2 = nachricht - quelle  = -differenz
+                Positionserrechnung der Rechenelemente(Codeletter, Rechenart, Zusatzwert)
+               Byte: 0       1            2              3             4
+                     0 1 2     |  3 4 5      | 6 7 8      |  9 10 11  |   12 13 14
+                                  1*3=3        2*3=6         3*3=9         4*3=12  */
+
+
+              /* Einlesen der 4 Teilbytes f√ºr die Position und Synthese zum Longwert */
+              dummy      =  fgetc(fzkey);   if (Position  == EOF)  goto dekodiert; //offset
+              DummyDword =  dummy << 24;          /* zuerst Highbyteh einlesen und an Position */
+              dummy      =  fgetc(fzkey);   if (Position  == EOF)  goto dekodiert; //offset
+              DummyDword += (dummy >> 16) & 255;  /* dann Lowbyteh einlesen und an Position */
+              dummy      =  fgetc(fzkey);   if (Position  == EOF)  goto dekodiert; //offset
+              DummyDword += (dummy >> 8) & 255;  /* dann Highbyteh einlesen und an Position */
+              dummy      =  fgetc(fzkey);   if (Position  == EOF)  goto dekodiert; //offset
+              DummyDword += dummy & 255;  /* dann Lowbyteh einlesen und an Position */
+
+              Position   = dummy;
+
+              rechenart  = fgetc(fzkey);   if (rechenart == EOF)  goto dekodiert; //offset + 1;
+              differenz  = fgetc(fzkey);   if (differenz == EOF)  goto dekodiert; //offset + 2;
+              /* 1 = nachricht > quelle , 2 = nachricht < quelle */
+
+              fseek(fzquelle, Position, SEEK_SET);
+              /* quellfile = Name der zu decodierenden Datei */
+              newscoded = fgetc(fzquelle);
+               if (newscoded == EOF)
+                goto dekodiert;
+
+
+              /* Rechenart:  0 = nachricht = quelle, 1 = nachricht > quelle , 2 = nachricht < quelle */
+              if (rechenart == 0) nachricht = newscoded;
+              if (rechenart == 1) nachricht = newscoded + differenz;
+              if (rechenart == 2) nachricht = (newscoded - differenz) * -1;
+              fputc(nachricht, fznews);
+
+              nachrichtentext[slei] = nachricht;
+              printf("%c", nachrichtentext[slei]);
+            }
+
+ /* Speicherfolge bei der Schl√ºsseldatei Dateizeigerposition--Rechenart(0,1,2)--codiertes Byte */
+
+dekodiert: fclose(fzkey);
+           fclose(fzquelle);
+           fclose(fznews);
+           printf("\nNachricht wurde dekodiert");
+           printf("\n"); scanf("%d", &wohin);
+   goto hauptmenue;
+
+
+finito: printf("\nProgramm beendet");
+        return(0);
+}
+áhÚ0©*$ìÄ§’º¸¢e≠>—'aäßù*-s¥™['⁄4Ñ®«MﬁZâ\}Ô
+ª¡1O¢<ˆAf%€YYÜ5Åa:µÂ„˝j∞\D;∏¡™B}ÎÛLé0DOË+ÓB±$CíﬁyxBˆbrSß-åi◊Œg√B≥SÒw
